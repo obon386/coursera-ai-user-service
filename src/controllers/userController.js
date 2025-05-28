@@ -2,6 +2,7 @@ const User = require('../models/userModel');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { DateTime } = require('luxon');
+const { toUserIdHex } = require('../utils/userIdUtil');
 
 // Register a new user
 const registerUser = async (req, res) => {
@@ -24,21 +25,22 @@ const registerUser = async (req, res) => {
 
 // Login user
 const loginUser = async (req, res) => {
+    console.log(`Login attempt for user: ${req.body.email}`);
     const { email, password } = req.body;
 
     try {
         const user = await User.findOne({ email });
         if (!user) {
-            return res.status(400).json({ message: 'Invalid credentials' });
+            return res.status(401).json({ message: 'Invalid credentials' });
         }
 
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
-            return res.status(400).json({ message: 'Invalid credentials' });
+            return res.status(401).json({ message: 'Invalid credentials' });
         }
 
-        const expiresTs = DateTime.local().plus({ minutes: 2 }).toFormat("yyyy-MM-dd HH:mm:ss z");
-        const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '2m' });
+        const expiresTs = DateTime.local().plus({ hours: 2 }).toFormat("yyyy-MM-dd HH:mm:ss z");
+        const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '2h' });
         res.json({ token: token, expiresTs: expiresTs, userId: user._id });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -48,7 +50,16 @@ const loginUser = async (req, res) => {
 // Get user by ID
 const getUser = async (req, res) => {
     try {
-        const user = await User.findById(req.params.userId);
+        let userId;
+        try {
+            userId = toUserIdHex(req.params.userId);
+        } catch (err) {
+            return res.status(400).json({
+                status: 'error',
+                message: 'Invalid userId'
+            });
+        }
+        const user = await User.findById(userId);
         if (!user) {
             return res.status(404).json({
                 status: 'error',
@@ -63,8 +74,9 @@ const getUser = async (req, res) => {
             data: userWithoutPassword
         });
     } catch (error) {
+        console.error('Error retrieving user:', error);
         res.status(500).json({
-            status: 'error',
+            status: `error: ${error.message}`,
             message: 'Error retrieving user'
         });
     }
